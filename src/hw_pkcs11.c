@@ -73,7 +73,7 @@
 #include "engine_pkcs11.h"
 
 #define PKCS11_ENGINE_ID "pkcs11"
-#define PKCS11_ENGINE_NAME "pkcs11 engine"
+#define PKCS11_ENGINE_NAME "PKCS#11 engine"
 
 #define CMD_SO_PATH		ENGINE_CMD_BASE
 #define CMD_MODULE_PATH 	(ENGINE_CMD_BASE+1)
@@ -81,7 +81,6 @@
 #define CMD_VERBOSE		(ENGINE_CMD_BASE+3)
 #define CMD_QUIET		(ENGINE_CMD_BASE+4)
 #define CMD_LOAD_CERT_CTRL	(ENGINE_CMD_BASE+5)
-#define CMD_INIT_ARGS	(ENGINE_CMD_BASE+6)
 
 static int pkcs11_engine_destroy(ENGINE * e);
 static int pkcs11_engine_ctrl(ENGINE * e, int cmd, long i, void *p,
@@ -98,7 +97,7 @@ static const ENGINE_CMD_DEFN pkcs11_cmd_defns[] = {
 	 ENGINE_CMD_FLAG_STRING},
 	{CMD_MODULE_PATH,
 	 "MODULE_PATH",
-	 "Specifies the path to the pkcs11 module shared library",
+	 "Specifies the path to the PKCS#11 module shared library",
 	 ENGINE_CMD_FLAG_STRING},
 	{CMD_PIN,
 	 "PIN",
@@ -108,18 +107,10 @@ static const ENGINE_CMD_DEFN pkcs11_cmd_defns[] = {
 	 "VERBOSE",
 	 "Print additional details",
 	 ENGINE_CMD_FLAG_NO_INPUT},
-	{CMD_QUIET,
-	 "QUIET",
-	 "Remove additional details",
-	 ENGINE_CMD_FLAG_NO_INPUT},
 	{CMD_LOAD_CERT_CTRL,
 	 "LOAD_CERT_CTRL",
 	 "Get the certificate from card",
 	 ENGINE_CMD_FLAG_INTERNAL},
-	{CMD_INIT_ARGS,
-	 "INIT_ARGS",
-	 "Specifies additional initialization arguments to the pkcs11 module",
-	 ENGINE_CMD_FLAG_STRING},
 	{0, NULL, NULL, 0}
 };
 
@@ -142,31 +133,11 @@ static int pkcs11_engine_ctrl(ENGINE * e, int cmd, long i, void *p,
 		return inc_verbose();
 	case CMD_LOAD_CERT_CTRL:
 		return load_cert_ctrl(e, p);
-	case CMD_INIT_ARGS:
-		return set_init_args((const char *)p);
 	default:
 		break;
 	}
 	return 0;
 }
-
-#if 0
-/* set up default rsa_meth_st with overloaded rsa functions */
-/* the actual implementation needs to be in another object */
-
-static int (*orig_finish) (RSA * rsa);
-
-static int pkcs11_engine_rsa_finish(RSA * rsa)
-{
-
-	pkcs11_rsa_finish(rsa);
-
-	if (orig_finish)
-		orig_finish(rsa);
-	return 1;
-
-}
-#endif
 
 /* This internal function is used by ENGINE_pkcs11() and possibly by the
  * "dynamic" ENGINE support too */
@@ -189,9 +160,6 @@ static int bind_helper(ENGINE * e)
 	    !ENGINE_set_DH(e, DH_get_default_method()) ||
 #endif
 	    !ENGINE_set_RAND(e, RAND_SSLeay()) ||
-#if 0
-	    !ENGINE_set_BN_mod_exp(e, BN_mod_exp) ||
-#endif
 	    !ENGINE_set_load_pubkey_function(e, pkcs11_load_public_key) ||
 	    !ENGINE_set_load_privkey_function(e, pkcs11_load_private_key)) {
 		return 0;
