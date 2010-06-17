@@ -53,12 +53,11 @@ static PKCS11_CTX *ctx;
  */
 static char *pin = NULL;
 static int pin_length = 0;
+static int pin_from_conf = 0;
 
 static int verbose = 0;
 
 static char *module = NULL;
-
-static char *init_args = NULL;
 
 int set_module(const char *modulename)
 {
@@ -81,6 +80,9 @@ int set_module(const char *modulename)
  */
 int set_pin(const char *_pin)
 {
+	if (verbose)
+		fprintf(stderr, "Setting PIN");
+
 	/* Pre-condition check */
 	if (_pin == NULL) {
 		errno = EINVAL;
@@ -105,7 +107,7 @@ int inc_verbose(void)
 /* either get the pin code from the supplied callback data, or get the pin
  * via asking our self. In both cases keep a copy of the pin code in the
  * pin variable (strdup'ed copy). */
-static int get_pin(UI_METHOD * ui_method, void *callback_data)
+static int get_pin(UI_METHOD * ui_method, void *callback_data, char *token_label)
 {
 	UI *ui;
 	struct {
@@ -131,7 +133,7 @@ static int get_pin(UI_METHOD * ui_method, void *callback_data)
 		UI_set_app_data(ui, callback_data);
 
 	if (!UI_add_input_string
-	    (ui, "PKCS#11 token PIN: ", 0, pin, 1, MAX_PIN_LENGTH)) {
+	    (ui, "PKCS#11 token \"\" PIN: ", 0, pin, 1, MAX_PIN_LENGTH)) {
 		fprintf(stderr, "UI_add_input_string failed\n");
 		UI_free(ui);
 		return 0;
@@ -145,35 +147,36 @@ static int get_pin(UI_METHOD * ui_method, void *callback_data)
 	return 1;
 }
 
-int set_init_args(const char *init_args_orig)
-{
-	init_args = init_args_orig ? strdup(init_args_orig) : NULL;
-	return 1;
-}
-
-int pkcs11_finish(ENGINE * engine)
-{
-	if (ctx) {
-		PKCS11_CTX_unload(ctx);
-		PKCS11_CTX_free(ctx);
-		ctx = NULL;
-	}
+static void clear_pin(int ignore_cache) {
+	fprintf(stderr, "clearing pin\n");
 	if (pin != NULL) {
 		OPENSSL_cleanse(pin, pin_length);
 		free(pin);
 		pin = NULL;
 		pin_length = 0;
 	}
+}
+
+int pkcs11_finish(ENGINE * engine)
+{
+	if (verbose) {
+		fprintf(stderr, "finish engine\n");
+	}
+	if (ctx) {
+		PKCS11_CTX_unload(ctx);
+		PKCS11_CTX_free(ctx);
+		ctx = NULL;
+	}
+/*	clear_pin(1); FIXME: this would invalidate the PIN for batched command line operations. */
 	return 1;
 }
 
 int pkcs11_init(ENGINE * engine)
 {
 	if (verbose) {
-		fprintf(stderr, "initializing engine\n");
+		fprintf(stderr, "Initializing engine\n");
 	}
 	ctx = PKCS11_CTX_new();
-        PKCS11_CTX_init_args(ctx, init_args);
 	if (PKCS11_CTX_load(ctx, module) < 0) {
 		fprintf(stderr, "unable to load module %s\n", module);
 		return 0;
@@ -183,12 +186,10 @@ int pkcs11_init(ENGINE * engine)
 
 int pkcs11_rsa_finish(RSA * rsa)
 {
-	if (pin) {
-		OPENSSL_cleanse(pin, pin_length);
-		free(pin);
-		pin = NULL;
-		pin_length = 0;
+	if (verbose) {
+		fprintf(stderr, "pkcs11_rsa_finish\n");
 	}
+	clear_pin(1);
 	if (module) {
 		free(module);
 		module = NULL;
@@ -684,29 +685,23 @@ static EVP_PKEY *pkcs11_load_key(ENGINE * e, const char *s_slot_key_id,
 
 	/* Perform login to the token if required */
 	if (tok->loginRequired) {
+		printf("logging with %s\n", pin);
 		/* If the token has a secure login (i.e., an external keypad),
 		   then use a NULL pin. Otherwise, check if a PIN exists. If
 		   not, allocate and obtain a new PIN. */
 		if (tok->secureLogin) {
+		    printf("Secure login\n");
 			/* Free the PIN if it has already been 
 			   assigned (i.e, cached by get_pin) */
-			if (pin != NULL) {
-				OPENSSL_cleanse(pin, pin_length);
-				free(pin);
-				pin = NULL;
-				pin_length = 0;
-			}
+			clear_pin(1);
 		} else if (pin == NULL) {
 			pin = (char *)calloc(MAX_PIN_LENGTH, sizeof(char));
 			pin_length = MAX_PIN_LENGTH;
 			if (pin == NULL) {
 				fail("Could not allocate memory for PIN");
 			}
-			if (!get_pin(ui_method, callback_data) ) {
-				OPENSSL_cleanse(pin, pin_length);
-				free(pin);
-				pin = NULL;
-				pin_length = 0;
+			if (!get_pin(ui_method, callback_data, slot->token->label) ) {
+				clear_pin(1);
 				fail("No pin code was entered");
 			}
 		}
@@ -714,12 +709,7 @@ static EVP_PKEY *pkcs11_load_key(ENGINE * e, const char *s_slot_key_id,
 		/* Now login in with the (possibly NULL) pin */
 		if (PKCS11_login(slot, 0, pin)) {
 			/* Login failed, so free the PIN if present */
-			if (pin != NULL) {
-				OPENSSL_cleanse(pin, pin_length);
-				free(pin);
-				pin = NULL;
-				pin_length = 0;
-			}
+			clear_pin(1);
 			fail("Login failed\n");
 		}
 		/* Login successful, PIN retained in case further logins are 
