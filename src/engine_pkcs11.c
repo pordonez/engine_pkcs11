@@ -114,6 +114,7 @@ static int get_pin(UI_METHOD * ui_method, void *callback_data, char *token_label
 		const void *password;
 		const char *prompt_info;
 	} *mycb = callback_data;
+	char prompt[64]; /* libp11 should guarantee token label to be <32 bytes */
 
 	/* pin in the call back data, copy and use */
 	if (mycb != NULL && mycb->password) {
@@ -132,8 +133,9 @@ static int get_pin(UI_METHOD * ui_method, void *callback_data, char *token_label
 	if (callback_data != NULL)
 		UI_set_app_data(ui, callback_data);
 
+	snprintf(prompt, 64, "PKCS#11 token \"%s\" PIN: ", token_label);
 	if (!UI_add_input_string
-	    (ui, "PKCS#11 token \"\" PIN: ", 0, pin, 1, MAX_PIN_LENGTH)) {
+	    (ui, prompt, 0, pin, 1, MAX_PIN_LENGTH)) {
 		fprintf(stderr, "UI_add_input_string failed\n");
 		UI_free(ui);
 		return 0;
