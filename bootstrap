@@ -5,6 +5,7 @@ set -x
 if test -f Makefile; then
   make distclean
 fi
+test -d m4 || mkdir m4
 rm -rf *~ *.cache *.m4 config.guess config.log \
 	config.status config.sub depcomp ltmain.sh
 autoreconf --verbose --install --force
