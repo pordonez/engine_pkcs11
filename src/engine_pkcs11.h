@@ -33,9 +33,12 @@
 #include <openssl/objects.h>
 #include <openssl/engine.h>
 
+
 int set_module(const char *modulename);
 
 int set_pin(const char *pin);
+
+int set_cert_id(const char *cert_id);
 
 int set_init_args(const char *init_args_orig);
 
@@ -54,5 +57,9 @@ EVP_PKEY *pkcs11_load_public_key(ENGINE * e, const char *s_key_id,
 
 EVP_PKEY *pkcs11_load_private_key(ENGINE * e, const char *s_key_id,
 				  UI_METHOD * ui_method, void *callback_data);
+
+int load_ssl_client_cert(ENGINE * e,  SSL *ssl,
+                         STACK_OF(X509_NAME) *ca_dn, X509 **pcert, EVP_PKEY **pkey,
+                         STACK_OF(X509) **pother, UI_METHOD *ui_method, void *callback_data);
 
 #endif

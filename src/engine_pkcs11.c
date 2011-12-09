@@ -40,7 +40,6 @@
 
 #define fail(msg) { fprintf(stderr,msg); return NULL;}
 
-/** The maximum length of an internally-allocated PIN */
 #define MAX_PIN_LENGTH   32
 
 static PKCS11_CTX *ctx;
@@ -59,6 +58,11 @@ static int verbose = 0;
 static char *module = NULL;
 
 static char *init_args = NULL;
+
+/**
+ * Cache the cert id so that it's available for certificate requests
+ */
+static char* cached_cert_id = NULL;
 
 int set_module(const char *modulename)
 {
@@ -96,6 +100,25 @@ int set_pin(const char *_pin)
 	return (pin != NULL);
 }
 
+int set_cert_id(const char *_cert_id)
+{
+	if (verbose) {
+		fprintf(stderr, "set cert id to %s\n", _cert_id);
+	}
+	if (_cert_id == NULL) {
+		if (cached_cert_id != NULL) {
+			free(cached_cert_id);
+			cached_cert_id == NULL;
+		}
+	} else { //_cert_id != NULL
+		cached_cert_id = strdup(_cert_id);
+		if (cached_cert_id == NULL) {
+			errno = ENOMEM;
+    	}
+	}
+	return (cached_cert_id != NULL);
+}
+
 int inc_verbose(void)
 {
 	verbose++;
@@ -115,6 +138,9 @@ static int get_pin(UI_METHOD * ui_method, void *callback_data)
 
 	/* pin in the call back data, copy and use */
 	if (mycb != NULL && mycb->password) {
+		if (verbose) {
+			fprintf(stderr, "getting PIN from callback_data\n");
+		}
 		pin = (char *)calloc(MAX_PIN_LENGTH, sizeof(char));
 		if (!pin)
 			return 0;
@@ -131,7 +157,7 @@ static int get_pin(UI_METHOD * ui_method, void *callback_data)
 		UI_set_app_data(ui, callback_data);
 
 	if (!UI_add_input_string
-	    (ui, "PKCS#11 token PIN: ", 0, pin, 1, MAX_PIN_LENGTH)) {
+	    (ui, "Enter PIN: ", 0, pin, 1, MAX_PIN_LENGTH)) {
 		fprintf(stderr, "UI_add_input_string failed\n");
 		UI_free(ui);
 		return 0;
@@ -163,6 +189,9 @@ int pkcs11_finish(ENGINE * engine)
 		free(pin);
 		pin = NULL;
 		pin_length = 0;
+	}
+	if (cached_cert_id != NULL) {
+		set_cert_id(NULL);
 	}
 	return 1;
 }
@@ -475,7 +504,7 @@ static X509 *pkcs11_load_cert(ENGINE * e, const char *s_slot_cert_id)
 	tok = slot->token;
 
 	if (tok == NULL) {
-		fprintf(stderr, "Found empty token; \n");
+		fprintf(stderr, "No smart card found.\n");
 		PKCS11_release_all_slots(ctx, slot_list, slot_count);
 		return NULL;
 	}
@@ -494,14 +523,35 @@ static X509 *pkcs11_load_cert(ENGINE * e, const char *s_slot_cert_id)
 	if (verbose) {
 		fprintf(stderr, "Found %u cert%s:\n", cert_count,
 			(cert_count <= 1) ? "" : "s");
+		for (n = 0; n < cert_count; n++) {
+			PKCS11_CERT *c = certs + n;
+			char *dn = NULL;
+
+			fprintf(stderr, "  %2u    %s", n + 1, c->label);
+			if (c->x509)
+				dn = X509_NAME_oneline(X509_get_subject_name
+						       (c->x509), NULL, 0);
+			if (dn) {
+				fprintf(stderr, " (%s)", dn);
+				OPENSSL_free(dn);
+			}
+			fprintf(stderr, "\n");
+		}
 	}
 	if ((s_slot_cert_id && *s_slot_cert_id) && (cert_id_len != 0)) {
 		for (n = 0; n < cert_count; n++) {
 			PKCS11_CERT *k = certs + n;
 
-			if (cert_id_len != 0 && k->id_len == cert_id_len &&
-			    memcmp(k->id, cert_id, cert_id_len) == 0) {
-				selected_cert = k;
+			if (cert_label == NULL) {
+
+				if (cert_id_len != 0 && k->id_len == cert_id_len &&
+				    memcmp(k->id, cert_id, cert_id_len) == 0) {
+					selected_cert = k;
+				}
+			} else {
+				if (strcmp(k->label, cert_label) == 0) {
+					selected_cert = k;
+				}
 			}
 		}
 	} else {
@@ -789,6 +839,9 @@ static EVP_PKEY *pkcs11_load_key(ENGINE * e, const char *s_slot_key_id,
 	}
 	if (key_label != NULL)
 		free(key_label);
+
+	set_cert_id(s_slot_key_id);
+
 	return pk;
 }
 
@@ -796,10 +849,14 @@ EVP_PKEY *pkcs11_load_public_key(ENGINE * e, const char *s_key_id,
 				 UI_METHOD * ui_method, void *callback_data)
 {
 	EVP_PKEY *pk;
+	if (verbose) {
+		fprintf(stderr, "loading public key\n");
+	}
 
 	pk = pkcs11_load_key(e, s_key_id, ui_method, callback_data, 0);
-	if (pk == NULL)
+	if (verbose && pk == NULL) {
 		fail("PKCS11_load_public_key returned NULL\n");
+	}
 	return pk;
 }
 
@@ -807,9 +864,31 @@ EVP_PKEY *pkcs11_load_private_key(ENGINE * e, const char *s_key_id,
 				  UI_METHOD * ui_method, void *callback_data)
 {
 	EVP_PKEY *pk;
+	if (verbose) {
+		fprintf(stderr, "loading private key.");
+	}
 
 	pk = pkcs11_load_key(e, s_key_id, ui_method, callback_data, 1);
-	if (pk == NULL)
+	if (verbose && pk == NULL) {
 		fail("PKCS11_get_private_key returned NULL\n");
+	}
 	return pk;
+}
+
+int load_ssl_client_cert(ENGINE * e,  SSL *ssl, STACK_OF(X509_NAME) *ca_dn, 
+			 X509 **pcert, EVP_PKEY **pkey, STACK_OF(X509) **pother, 
+			 UI_METHOD *ui_method, void *callback_data) {
+
+	if (verbose) {
+		fprintf(stderr, "loading client cert. cached_cert_id=%s\n", cached_cert_id);
+	}
+
+	if (cached_cert_id == NULL) {
+		*pcert = NULL;
+		return 0;
+	}
+
+	*pcert = pkcs11_load_cert(e, cached_cert_id);
+
+	return 1;
 }

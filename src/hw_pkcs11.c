@@ -82,6 +82,7 @@
 #define CMD_QUIET		(ENGINE_CMD_BASE+4)
 #define CMD_LOAD_CERT_CTRL	(ENGINE_CMD_BASE+5)
 #define CMD_INIT_ARGS	(ENGINE_CMD_BASE+6)
+#define CMD_CERT_ID	(ENGINE_CMD_BASE+7)
 
 static int pkcs11_engine_destroy(ENGINE * e);
 static int pkcs11_engine_ctrl(ENGINE * e, int cmd, long i, void *p,
@@ -120,6 +121,10 @@ static const ENGINE_CMD_DEFN pkcs11_cmd_defns[] = {
 	 "INIT_ARGS",
 	 "Specifies additional initialization arguments to the pkcs11 module",
 	 ENGINE_CMD_FLAG_STRING},
+	{CMD_CERT_ID,
+	 "CERT_ID",
+	 "Specifies the certificate id",
+	 ENGINE_CMD_FLAG_STRING},
 	{0, NULL, NULL, 0}
 };
 
@@ -138,6 +143,8 @@ static int pkcs11_engine_ctrl(ENGINE * e, int cmd, long i, void *p,
 		return set_module((const char *)p);
 	case CMD_PIN:
 		return set_pin((const char *)p);
+	case CMD_CERT_ID:
+		return set_cert_id((const char *)p);
 	case CMD_VERBOSE:
 		return inc_verbose();
 	case CMD_LOAD_CERT_CTRL:
@@ -193,7 +200,8 @@ static int bind_helper(ENGINE * e)
 	    !ENGINE_set_BN_mod_exp(e, BN_mod_exp) ||
 #endif
 	    !ENGINE_set_load_pubkey_function(e, pkcs11_load_public_key) ||
-	    !ENGINE_set_load_privkey_function(e, pkcs11_load_private_key)) {
+	    !ENGINE_set_load_privkey_function(e, pkcs11_load_private_key) ||
+	    !ENGINE_set_load_ssl_client_cert_function(e, load_ssl_client_cert)) {
 		return 0;
 	} else {
 		return 1;
