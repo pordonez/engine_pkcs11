@@ -5,7 +5,7 @@ function, which returns among other things a x509 certificate.
 
 Since the function provides no way that (I can see) to specify which
 certificate to "load", the implementation does this by adding a method to the
-engine to set the certificate name (slot-id). It is used before actually getting the
+engine to set the certificate name (slot-id). The method is used before actually getting the
 certificate.  The way the function would be used when interfacing with
 OpenSSL would be roughly as follows:
 
